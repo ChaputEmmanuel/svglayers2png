@@ -1,0 +1,501 @@
+#!/bin/bash
+#
+# Extract (some) layers from svg input file and build png files
+# by Emmanuel Chaput (emmanuel.chaput at gmail.com)
+# heavily based on export_layers_batch.bash by Arnaud Ramey
+#
+# Version 
+#    1.0 Seems usable
+
+# Main options
+DEBUG=no
+INCREMENTAL=no
+INKSCAPE_ARGS=
+SVG_TMP_FILE=/tmp/svglayers2png-$$.svg
+
+# Some variables
+BACK_LAYER=
+BACK_LAYER_IDX=
+FIRST_LAYER=1
+LAST_LAYER=0
+LAYER_PATTERN="Layer %d"
+LAYERS_GROUPS=
+OUTPUT_PATTERN="%s-%d.png"
+
+# Main tools
+BASENAME=/usr/bin/basename
+CAT=/bin/cat
+CONVERT=/usr/bin/convert
+CP=/bin/cp
+DIRNAME=/usr/bin/dirname
+INKSCAPE=/usr/bin/inkscape
+MORE=/bin/more
+RM=/bin/rm
+PRINTF=/usr/bin/printf
+XMLSTARLET=/usr/bin/xmlstarlet
+
+#----------------------------------------------------------------------------------
+# Some helpfull functions
+#----------------------------------------------------------------------------------
+
+# $1 : file
+# $2 : layer
+setLayerVisible() {
+  $XMLSTARLET edit --inplace --update "//*[@inkscape:label=\"$2\"]/@style" --value "display:inline" $1
+} 
+
+delTempFiles() {
+   $RM -f /tmp/svglayers2png-$$-*.svg  $SVG_TMP_FILE
+}
+
+# $1 : SVG source file
+# $2 : PNG dest file
+exportToPNG() {
+  $INKSCAPE --export-area-page --without-gui --export-png=$2 $INKSCAPE_ARGS $1 >> /dev/null
+  $CONVERT $2 -flatten $2
+}
+
+#----------------------------------------------------------------------------------
+# Argv parsing
+#----------------------------------------------------------------------------------
+ME=`$BASENAME $0`
+while [[ $# > 0 ]] ; do
+   case "$1" in
+      -h )
+          $MORE << EOF
+Usage
+   $ME [sourcefile [layers [background]]] [-i] [-b idx] [-f idx] [-l idx] [-p pattern]
+
+   where
+   -f <idx>      first layer index (default '$FIRST_LAYER')
+   -i            incremental groups (default $INCREMENTAL)
+   -l <idx>      last layer index (defaut '$LAST_LAYER')
+   -b <idx>      background layer index (defaut '$BACK_LAYER_IDX')
+   -p <pattern>  pattern for layer names (default "$LAYER_PATTERN")
+   -o <pattern>  output file names pattern (default "$OUTPUT_PATTERN")
+   layers        layergroup1,layergroup2, ...
+   layergroup    layerid:layerid: ...
+   background    backgound layer
+
+   Create png files from a svg file based on the specification of
+layer groups.
+
+   Each png file is created with a group defined by a colon separated
+list of layer identifiers (eg L1:L2:L5:L6)
+
+   Groups (and thus png files) are described by a comma separated list
+of groups (eg L1:L2,L3:L4,L2:L3).
+
+Simplified version
+
+   If your layers can be named through a simple numbered pattern
+(such as in the following example) and your group list is a simple
+scheme, you probably don't need to write the group specifications.
+
+   For this, you will select the first layer with the -f option and
+the last one with the -l option.
+
+   The pattern can be described with the -p option. The first
+(hopefully single) %d will be replaced by the group number. The defaut
+pattern is "$LAYER_PATTERN".
+
+Incremental groups
+
+   If the incremental option (-i) is used, each group is superimposed
+of the previous one.
+
+Background layer
+
+   The (optional) backgound layer will be automatically insert in each
+group. In simplified version, its number is specified with option -b.
+
+Output filenames
+
+   Each png image is named according to a pattern in which %s is
+the basename of the source file and %d is the group number.
+
+Example
+
+   Assume that the file e.svg contains the following layers named L1
+to L6. Note : I can create this file for you with the following command
+
+$ME -create_the_example_file_please
+
+   L1       L2       L3       L4       L5       L6
++------+ +------+ +------+ +------+ +------+ +------+
+|A     | | B    | |  C   | |   D  | |    E | |     F| 
++------+ +------+ +------+ +------+ +------+ +------+
+
+   Here are some command usage examples with the corresponding
+results. A simplified version is given when available.
+
+   $ME e.svg L2:L4,L1:L3,L5:L6
+
+e-1.png  e-2.png  e-3.png 
++------+ +------+ +------+
+| B D  | |A C   | |    EF|
++------+ +------+ +------+
+
+   $ME e.svg L3,L4,L5,L6
+   $ME e.svg -f 3 -l 6 -p "L%d" e.svg
+
+e-1.png  e-2.png  e-3.png  e-4.png
++------+ +------+ +------+ +------+
+|  C   | |   D  | |    E | |     F| 
++------+ +------+ +------+ +------+
+
+   $ME e.svg L1,L1:L2,L1:L3,L1:L4,L1:L5,L1:L6
+   $ME e.svg L1,L2,L3,L4,L5,L6 L1
+   $ME -b 1 -f 1 -l 6 -p "L%d" e.svg
+
+e-1.png  e-2.png  e-3.png  e-4.png  e-5.png  e-6.png 
++------+ +------+ +------+ +------+ +------+ +------+
+|A     | |AB    | |A C   | |A  D  | |A   E | |A    F| 
++------+ +------+ +------+ +------+ +------+ +------+
+
+   $ME -i e.svg L1,L2,L3,L4,L5,L6
+   $ME -i -f 1 -l 6 e.svg -p "L%d"
+
+e-1.png  e-2.png  e-3.png  e-4.png  e-5.png  e-6.png 
++------+ +------+ +------+ +------+ +------+ +------+
+|A     | |AB    | |ABC   | |ABCD  | |ABCDE | |ABCDEF| 
++------+ +------+ +------+ +------+ +------+ +------+
+
+Author
+
+   Any question, comment, bug report, money, beer, ... should be sent
+to emmanuel.chaput at gmail.com
+EOF
+          exit
+      ;;
+      -create_the_example_file_please )
+         cat > e.svg <<EOF
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="640px"
+   height="480px"
+   id="svg2985"
+   version="1.1"
+   inkscape:version="0.48.4 r9939"
+   sodipodi:docname="New document 2">
+  <defs
+     id="defs2987" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="1.5494505"
+     inkscape:cx="131.63957"
+     inkscape:cy="264.4852"
+     inkscape:current-layer="layer6"
+     inkscape:document-units="px"
+     showgrid="false"
+     inkscape:window-width="2560"
+     inkscape:window-height="1342"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1" />
+  <metadata
+     id="metadata2990">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="layer1"
+     inkscape:label="L1"
+     inkscape:groupmode="layer">
+    <flowRoot
+       xml:space="preserve"
+       id="flowRoot2998"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+       transform="translate(40.910013,22.879929)"><flowRegion
+         id="flowRegion3000"><rect
+           id="rect3002"
+           width="109.71632"
+           height="114.23405"
+           x="40.014183"
+           y="176.66667" /></flowRegion><flowPara
+         id="flowPara3004"
+         style="font-size:64px">A</flowPara></flowRoot>  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer2"
+     inkscape:label="L2">
+    <flowRoot
+       transform="translate(127.79599,22.879929)"
+       xml:space="preserve"
+       id="flowRoot2998-3"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"
+       inkscape:transform-center-x="10.326241"
+       inkscape:transform-center-y="19.361702"><flowRegion
+         id="flowRegion3000-5"><rect
+           id="rect3002-6"
+           width="109.71632"
+           height="114.23405"
+           x="40.014183"
+           y="176.66667" /></flowRegion><flowPara
+         id="flowPara3004-2"
+         style="font-size:64px">B</flowPara></flowRoot>  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer3"
+     inkscape:label="L3">
+    <flowRoot
+       transform="translate(214.682,22.879929)"
+       xml:space="preserve"
+       id="flowRoot2998-9"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"><flowRegion
+         id="flowRegion3000-1"><rect
+           id="rect3002-2"
+           width="109.71632"
+           height="114.23405"
+           x="40.014183"
+           y="176.66667" /></flowRegion><flowPara
+         id="flowPara3004-7"
+         style="font-size:64px">C</flowPara></flowRoot>  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer4"
+     inkscape:label="L4">
+    <flowRoot
+       transform="translate(301.56801,22.879929)"
+       xml:space="preserve"
+       id="flowRoot2998-0"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"><flowRegion
+         id="flowRegion3000-9"><rect
+           id="rect3002-3"
+           width="109.71632"
+           height="114.23405"
+           x="40.014183"
+           y="176.66667" /></flowRegion><flowPara
+         id="flowPara3004-6"
+         style="font-size:64px">D</flowPara></flowRoot>  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer5"
+     inkscape:label="L5">
+    <flowRoot
+       transform="translate(388.454,22.879929)"
+       xml:space="preserve"
+       id="flowRoot2998-06"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"><flowRegion
+         id="flowRegion3000-2"><rect
+           id="rect3002-61"
+           width="109.71632"
+           height="114.23405"
+           x="40.014183"
+           y="176.66667" /></flowRegion><flowPara
+         id="flowPara3004-8"
+         style="font-size:64px">E</flowPara></flowRoot>  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer6"
+     inkscape:label="L6">
+    <flowRoot
+       transform="translate(475.33999,22.879929)"
+       xml:space="preserve"
+       id="flowRoot2998-7"
+       style="font-size:40px;font-style:normal;font-weight:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;font-family:Sans"><flowRegion
+         id="flowRegion3000-92"><rect
+           id="rect3002-0"
+           width="109.71632"
+           height="114.23405"
+           x="40.014183"
+           y="176.66667" /></flowRegion><flowPara
+         id="flowPara3004-23"
+         style="font-size:64px">F</flowPara></flowRoot>  </g>
+</svg>
+EOF
+         echo "e.svg has been created, you can run example commands, ..."
+         exit
+      ;;
+      -i )
+         INCREMENTAL=yes
+      ;;
+
+      -l )
+         shift
+         LAST_LAYER=$1
+      ;;
+      -b )
+         shift
+         BACK_LAYER_IDX=$1
+      ;;
+      -o )
+         shift
+         OUTPUT_PATTERN=$1
+      ;;
+      -p )
+         shift
+         LAYER_PATTERN=$1
+      ;;
+      -f )
+         shift
+         FIRST_LAYER=$1
+      ;;
+      * )
+	 if [ ""$SOURCE_FILE == "" ] ; then
+            SOURCE_FILE=$1
+	 elif [ "$LAYERS_GROUPS" ==  "" ] ; then
+	    LAYERS_GROUPS=$1
+         else
+            BACK_LAYER=$1 
+	 fi	 
+      ;;
+   esac
+   shift
+done
+
+if [ -z $SOURCE_FILE ] ; then
+   echo "Need some help ? Try $ME -h"
+   exit
+fi
+
+#----------------------------------------------------------------------------------
+# Generating groups if LAST_LAYER > 0
+#----------------------------------------------------------------------------------
+if [ $LAST_LAYER != 0 ]; then
+   LAYERS_GROUPS=
+   if [ $DEBUG == "yes" ] ; then
+      echo $LAST_LAYER groups
+   fi
+   NB=$FIRST_LAYER
+   while [ $NB -le $LAST_LAYER ] ; do
+      if [ $DEBUG == "yes" ] ; then
+         echo -n "   - Group " $NB " is "
+      fi
+      GROUP=
+
+      # Append the layer to the group
+      if [ -n "$GROUP" ] ; then
+         GROUP=$GROUP:"`$PRINTF "$LAYER_PATTERN" $NB`"
+      else 
+         GROUP="`$PRINTF "$LAYER_PATTERN" $NB`"
+      fi
+
+      if [ $DEBUG == "yes" ] ; then
+         echo $GROUP
+      fi
+
+      NB=$(( $NB + 1 ))
+
+      # Append to goup list
+      if [ -n "$LAYERS_GROUPS" ] ; then
+         LAYERS_GROUPS=$LAYERS_GROUPS,$GROUP
+      else
+         LAYERS_GROUPS=$GROUP
+      fi
+   done
+   if [ -n "$BACK_LAYER_IDX" ] ; then
+      BACK_LAYER=`$PRINTF "$LAYER_PATTERN" $BACK_LAYER_IDX`
+   fi
+fi
+
+# Filename basename
+INPUT_BASENAME=`$DIRNAME $SOURCE_FILE`/`$BASENAME -s .svg $SOURCE_FILE`
+
+if [ $DEBUG == "yes" ] ; then
+   echo "Will extract"
+   echo "from $SOURCE_FILE"
+   echo "(using $SVG_TMP_FILE)"
+   echo "Groups " $LAYERS_GROUPS
+fi
+
+#----------------------------------------------------------------------------------
+# Create a copy with all layers invisible
+#----------------------------------------------------------------------------------
+$CP $SOURCE_FILE $SVG_TMP_FILE
+
+if [ $DEBUG == "yes" ] ; then
+   echo "Searching for layers ..."
+fi
+
+# Building layers list
+# eg 'Layer 1' 'Layer 2'
+LAYERS=`$XMLSTARLET sel -T -t -m '//*[@inkscape:groupmode="layer"]' -o \' -v '@inkscape:label' -o \' -i 'not(position()=last())' -o : $SVG_TMP_FILE `
+if [ $DEBUG == "yes" ] ; then
+   echo Current layers : $LAYERS
+fi
+
+# Make layers invisible
+IFS=":"
+for CURL in $LAYERS
+do
+   if [ $DEBUG == "yes" ] ; then
+      echo "   . $CURL : "
+   fi
+   $XMLSTARLET sel -T -t -m "//*[@inkscape:groupmode='layer'][@inkscape:label=$CURL]" -v "@style" $SVG_TMP_FILE > /dev/null 2>&1
+   if [ $? == 0 ] ; then
+      if [ $DEBUG == "yes" ] ; then
+         echo "      Hidden"
+      fi
+      $XMLSTARLET edit -P -S --inplace --update "//*[@inkscape:groupmode='layer'][@inkscape:label=$CURL]/@style" --value "display:none" $SVG_TMP_FILE
+   else
+      if [ $DEBUG == "yes" ] ; then
+         echo "      style added"
+      fi
+      $XMLSTARLET edit -P -S --inplace -a "//*[@inkscape:groupmode='layer'][@inkscape:label=$CURL]" -t attr --name 'style' --value "display:none" $SVG_TMP_FILE
+   fi
+done
+
+if [ $DEBUG == "yes" ] ; then
+   echo "Let us go ..."
+fi
+
+#----------------------------------------------------------------------------------
+# Parse layer groups
+# LAYERS_GROUPS is a comma separated list of group
+# a group is a colon separated list of layers
+# eg : "Layer 1","Layer 1":"Layer 2"
+#----------------------------------------------------------------------------------
+GROUP_ID=1
+IFS=","
+for CURRENT_GROUP in $LAYERS_GROUPS ; do
+   CURRENT_SVG=/tmp/svglayers2png-$$-$GROUP_ID.svg
+   CURRENT_PNG=`$PRINTF $OUTPUT_PATTERN $INPUT_BASENAME $GROUP_ID`
+   if [ $BACK_LAYER ] ; then
+      CURRENT_GROUP=$BACK_LAYER:$CURRENT_GROUP
+   fi
+   if [ $DEBUG == "yes" ] ; then
+      echo "Extracting $CURRENT_GROUP to $CURRENT_PNG (via $CURRENT_SVG)"
+   fi
+   $CP $SVG_TMP_FILE $CURRENT_SVG
+   IFS=':'
+   for LAYER_ID in $CURRENT_GROUP; do
+      if [ $DEBUG == "yes" ] ; then
+         echo Set $LAYER_ID visible
+      fi
+      setLayerVisible $CURRENT_SVG $LAYER_ID
+   done
+
+   # export CURRENTSVG
+   exportToPNG $CURRENT_SVG $CURRENT_PNG
+
+   # Incremental mode
+   if [ ""$INCREMENTAL == "yes" ] ; then
+      $CP $CURRENT_SVG $SVG_TMP_FILE
+      BACK_LAYER=
+   fi
+   GROUP_ID=$(( $GROUP_ID + 1 ))
+done
+
+delTempFiles

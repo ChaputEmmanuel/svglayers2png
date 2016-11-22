@@ -1,0 +1,102 @@
+Usage
+   svglayers2png [sourcefile [layers [background]]] [-i] [-b idx] [-f idx] [-l idx] [-p pattern]
+
+   where
+   -f <idx>      first layer index (default '1')
+   -i            incremental groups (default no)
+   -l <idx>      last layer index (defaut '0')
+   -b <idx>      background layer index (defaut '')
+   -p <pattern>  pattern for layer names (default "Layer %d")
+   -o <pattern>  output file names pattern (default "%s-%d.png")
+   layers        layergroup1,layergroup2, ...
+   layergroup    layerid:layerid: ...
+   background    backgound layer
+
+   Create png files from a svg file based on the specification of
+layer groups.
+
+   Each png file is created with a group defined by a colon separated
+list of layer identifiers (eg L1:L2:L5:L6)
+
+   Groups (and thus png files) are described by a comma separated list
+of groups (eg L1:L2,L3:L4,L2:L3).
+
+Simplified version
+
+   If your layers can be named through a simple numbered pattern
+(such as in the following example) and your group list is a simple
+scheme, you probably don't need to write the group specifications.
+
+   For this, you will select the first layer with the -f option and
+the last one with the -l option.
+
+   The pattern can be described with the -p option. The first
+(hopefully single) %d will be replaced by the group number. The defaut
+pattern is "Layer %d".
+
+Incremental groups
+
+   If the incremental option (-i) is used, each group is superimposed
+of the previous one.
+
+Background layer
+
+   The (optional) backgound layer will be automatically insert in each
+group. In simplified version, its number is specified with option -b.
+
+Output filenames
+
+   Each png image is named according to a pattern in which %s is
+the basename of the source file and %d is the group number.
+
+Example
+
+   Assume that the file e.svg contains the following layers named L1
+to L6. Note : I can create this file for you with the following command
+
+svglayers2png -create_the_example_file_please
+
+   L1       L2       L3       L4       L5       L6
++------+ +------+ +------+ +------+ +------+ +------+
+|A     | | B    | |  C   | |   D  | |    E | |     F| 
++------+ +------+ +------+ +------+ +------+ +------+
+
+   Here are some command usage examples with the corresponding
+results. A simplified version is given when available.
+
+   svglayers2png e.svg L2:L4,L1:L3,L5:L6
+
+e-1.png  e-2.png  e-3.png 
++------+ +------+ +------+
+| B D  | |A C   | |    EF|
++------+ +------+ +------+
+
+   svglayers2png e.svg L3,L4,L5,L6
+   svglayers2png e.svg -f 3 -l 6 -p "L%d" e.svg
+
+e-1.png  e-2.png  e-3.png  e-4.png
++------+ +------+ +------+ +------+
+|  C   | |   D  | |    E | |     F| 
++------+ +------+ +------+ +------+
+
+   svglayers2png e.svg L1,L1:L2,L1:L3,L1:L4,L1:L5,L1:L6
+   svglayers2png e.svg L1,L2,L3,L4,L5,L6 L1
+   svglayers2png -b 1 -f 1 -l 6 -p "L%d" e.svg
+
+e-1.png  e-2.png  e-3.png  e-4.png  e-5.png  e-6.png 
++------+ +------+ +------+ +------+ +------+ +------+
+|A     | |AB    | |A C   | |A  D  | |A   E | |A    F| 
++------+ +------+ +------+ +------+ +------+ +------+
+
+   svglayers2png -i e.svg L1,L2,L3,L4,L5,L6
+   svglayers2png -i -f 1 -l 6 e.svg -p "L%d"
+
+e-1.png  e-2.png  e-3.png  e-4.png  e-5.png  e-6.png 
++------+ +------+ +------+ +------+ +------+ +------+
+|A     | |AB    | |ABC   | |ABCD  | |ABCDE | |ABCDEF| 
++------+ +------+ +------+ +------+ +------+ +------+
+
+Author
+
+   Any question, comment, bug report, money, beer, ... should be sent
+to emmanuel.chaput at gmail.com
